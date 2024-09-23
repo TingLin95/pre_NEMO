@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Sep 21 15:05:38 2024
+
+@author: x_tilin
+"""
+
+import pandas as pd
+import netCDF4 as nc
+import numpy as np
+
+from datetime import datetime, timedelta
+import time
+
+def parse_args(data):
+    import argparse
+
+    parser = argparse.ArgumentParser(description="data root")
+
+    parser.add_argument("--list-path", default="/home/x_tilin/snic2021-23-400/users/x_tilin/run/project4/Polar-low-list_Stoll_2020.csv", help="PL list root") 
+    parser.add_argument("--data-path", default=data, help="era5 root")
+    parser.add_argument("--newdata-path", default="/home/x_tilin/snic2021-23-400/users/x_tilin/input_data/Boundary/WRF/project4/removed_pl_era5/", help="removed PL era5 root")
+
+    args = parser.parse_args()
+
+    return args
+
+
+
+data="/home/x_tilin/snic2021-23-400/users/x_tilin/input_data/Boundary/NEMO/ERA5/era5-hourly-10m_u_component_of_wind-2001.nc"
+args = parse_args(data)
+
+
+dataset = nc.Dataset(args.data_path, mode='r')
+era5_time=dataset.variables['time'][:]
+era5_lon=dataset.variables['longitude'][:]
+era5_lat=dataset.variables['latitude'][:]
+era5_value=dataset.variables['u10'][:,50,60]
+
+
+from scipy.fft import fft, fftfreq
+import numpy as np
+# Number of sample points
+N = int(era5_time.shape[0])
+# sample spacing (hourly data)
+# T = 1.0 / N 
+# sample spacing (ERA5 is hourly data, so the delat t is 3600 second)
+T=3600
+
+autocorr = np.correlate(era5_value, era5_value, mode='full')
+autocorr = autocorr[autocorr.size // 2:]
+
+
+yf = fft(autocorr)
+xf = fftfreq(N, T)[:N//2]
+
+# wavenumbers = 2 * np.pi * xf/abs(np.nanmean(era5_value))
+
+wavenumbers = xf/abs(np.nanmean(era5_value))
+wavelength = 2*np.pi/wavenumbers/1000
+power_spectrum= np.abs(yf[0:N//2])*abs(np.nanmean(era5_value))
+
+from matplotlib.ticker import LogFormatterExponent
+from matplotlib.ticker import LogFormatterMathtext
+import matplotlib.pyplot as plt
+# 创建示例数据
+x = wavenumbers  # 生成从 10^0 到 10^3 的数
+
+y = power_spectrum
+
+# 创建图形
+fig, ax = plt.subplots()
+
+# 绘制数据
+ax.plot(x, y)
+
+# 设置 x 和 y 轴为对数刻度
+ax.set_xscale('log')
+ax.set_yscale('log')
+
+# 使用 LogFormatterExponent 将 x 和 y 轴的刻度格式化为 10^n 的形式
+ax.xaxis.set_major_formatter(LogFormatterMathtext(base=10))
+ax.yaxis.set_major_formatter(LogFormatterMathtext(base=10))
+
+# 设置轴标签
+ax.set_xlabel('Wavenumber ($m^{-1}$)')
+ax.set_ylabel('Spectral power ($m^{3}s^{-2}}$)')
+
+
+
+def one_over(x):
+    """Vectorized 1/x, treating x==0 manually"""
+    x = np.array(x, float)
+    near_zero = np.isclose(x, 0)
+    x[near_zero] = np.inf
+    x[~near_zero] = 2*np.pi / x[~near_zero]/1000
+    return x
+# the function "1/x" is its own inverse
+inverse = one_over
+
+secax = ax.secondary_xaxis('top', functions=(one_over, inverse))
+secax.set_xlabel('Wavelength (km)')
+
+# 显示图形
+plt.show()
+
+  
+
+
+
